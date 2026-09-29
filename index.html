@@ -73,6 +73,7 @@ button{font-family:inherit}.app{min-height:100vh}.ui-top{height:80px;border-bott
 @media(max-width:820px){.ui-top{padding:0 18px}.ui-shell{gap:20px;grid-template-columns:130px minmax(0,1fr);padding:25px 18px 60px}.ui-nav button{font-size:14px;padding:12px}.ui-hero{padding:25px}.ui-realm{font-size:40px}.ui-potential-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ui-offer{align-items:start;flex-direction:column}}
 @media(max-width:640px){.ui-top{height:62px;padding:0 13px;gap:9px}.ui-brand strong{font-size:18px}.ui-brand-mark{width:30px;height:30px;font-size:18px}.ui-top-status{display:none}.ui-top-controls{margin-left:auto;gap:0}.ui-top-controls button{padding:7px 6px;font-size:12px}.ui-shell{display:block;padding:19px 15px 96px}.ui-nav{position:fixed;z-index:10;top:auto;bottom:0;left:0;right:0;height:70px;background:#101b15f5;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;padding:5px 8px calc(5px + env(safe-area-inset-bottom))}.ui-nav button{justify-content:center;flex-direction:column;gap:1px;padding:3px;font-size:12px}.ui-nav button span{font-size:18px}.ui-nav button i{position:absolute;margin:0;transform:translate(24px,-13px)}.ui-page-head{margin:3px 0 20px}.ui-page-head h1{font-size:30px}.ui-page-head p{font-size:13px}.ui-soul{display:none}.ui-hero{padding:22px}.ui-realm{font-size:38px;margin:28px 0 24px}.ui-realm small{font-size:17px}.ui-secondary,.ui-panel,.ui-offer{padding:18px}.ui-hero-foot{font-size:14px}.ui-event p{font-size:13px}.ui-tags span{font-size:12px}.ui-metrics{gap:6px}.ui-metrics>div{padding:14px}.ui-metrics strong{font-size:18px}.ui-slot-grid{gap:6px}.ui-slot{padding:12px}.ui-slot strong{font-size:14px}}
 @media(max-width:390px){.ui-top-controls button{padding:6px 5px;font-size:11px}.ui-brand strong{font-size:16px}.ui-brand{gap:6px}.ui-page-head h1{font-size:28px}.ui-realm{font-size:34px}.ui-detail .stage-row{grid-template-columns:52px minmax(0,1fr) 36px;gap:7px}.ui-potential-grid{gap:6px}.ui-potential{padding:12px}.ui-potential button{padding:8px 6px}.ui-button{padding:8px 10px}}
+@media(max-width:640px){.ui-nav{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 </style>
 </head>
@@ -112,23 +113,23 @@ function makeRoot(potential,rng=Math.random){
 }
 function newLifeFields(potential,rng=Math.random){return {
  root:makeRoot(potential,rng),lifespanFactor:Math.round((0.85+rng()*0.30)*1000)/1000,
- injuryYears:0,legacyLifeFloor:0,minor:1,methods:['breath'],activeMethod:'breath',
- children:[]
+ injuryYears:0,legacyLifeFloor:0,minor:1
 }}
 function methodById(id){return METHODS.find(x=>x.id===id)||METHODS[0]}
 function affinity(method,root){return method.element==='通'?1:method.element===root?.element?1.12:0.87}
 function methodScore(method,root){return (1+method.cultivation)*affinity(method,root)}
-function bestMethod(state){return (state.methods||['breath']).map(methodById).sort((a,b)=>methodScore(b,state.root)-methodScore(a,state.root))[0]||METHODS[0]}
-function learnMethod(state,id){if(!METHODS.some(x=>x.id===id)||state.methods.includes(id))return false;state.methods.push(id);state.activeMethod=bestMethod(state).id;return true}
+function bestMethod(state){return (state.methods||['breath']).map(methodById).sort((a,b)=>methodScore(b,state.root)-methodScore(a,state.root)||b.breakthrough-a.breakthrough)[0]||METHODS[0]}
+function learnMethod(state,id){const next=METHODS.find(x=>x.id===id),current=bestMethod(state);if(!next||methodScore(next,state.root)<methodScore(current,state.root)||methodScore(next,state.root)===methodScore(current,state.root)&&next.breakthrough<=current.breakthrough)return false;state.methods=[id];state.activeMethod=id;return true}
 function discoverMethod(state,rng=Math.random){
- const candidates=METHODS.filter(x=>!state.methods.includes(x.id));if(!candidates.length)return null;
+ const current=bestMethod(state),score=methodScore(current,state.root);
+ const candidates=METHODS.filter(x=>methodScore(x,state.root)>score||methodScore(x,state.root)===score&&x.breakthrough>current.breakthrough);if(!candidates.length)return null;
  const fortune=Math.max(0,value(state.potential?.fortune));
  const roll=rng()+Math.min(0.35,fortune*0.012)+Math.min(0.12,state.realm*0.012);
  const maxGrade=clamp(Math.floor(roll*5),1,5);
  const eligible=candidates.filter(x=>x.grade<=maxGrade);
  if(!eligible.length)return null;
  const selected=eligible[Math.floor(clamp(rng(),0,0.99999)*eligible.length)];
- learnMethod(state,selected.id);return selected;
+ return learnMethod(state,selected.id)?selected:null;
 }
 function naturalLife(state){
  const realm=clamp(Math.floor(value(state.realm)),0,10);
@@ -146,10 +147,8 @@ function annualProgress(state,power=0){
  const soul=1+Math.min(0.72,Math.max(0,value(p.root))*0.025)+Math.min(0.34,Math.max(0,value(p.wisdom))*0.012);
  const root=1+rootGrade*0.105;
  const method=methodScore(bestMethod(state),state.root);
- const cave=1+Math.min(0.30,Math.max(0,value(state.cave?.level,1)-1)*0.025);
  const gear=1+Math.min(0.12,Math.max(0,power)*0.003);
- const companion=state.partner?1.04:1;
- const efficiency=Math.min(3.6,soul*root*method*cave*gear*companion);
+ const efficiency=Math.min(3.6,soul*root*method*gear);
  return 100*efficiency/WORK[clamp(state.realm||0,0,10)];
 }
 function breakthroughChance(state){return clamp(0.62+Math.max(0,value(state.potential?.wisdom))*0.014+bestMethod(state).breakthrough,0.62,0.94)}
@@ -184,30 +183,19 @@ const potentialTypes=[
  {key:'vitality',name:'体魄',glyph:'☯',desc:'身如山岳，延长寿元并提高劫后生机。'}
 ];
 const gearNames={weapon:['松纹剑','赤霄短刃','青冥剑胚','逐月飞剑','太虚古剑','玄阳斩龙剑'],armor:['素绡法衣','青鳞护心甲','流云仙氅','山河玄甲','九转星衣','无相天衣'],charm:['凝神玉佩','月华灵珠','问道古钱','紫府莲台','乾坤定魂印','太初道种']};
-const gearGlyph={weapon:'⚔',armor:'◈',charm:'☯'};
-const rarities=P.GRADES.map(g=>g.name);
-const rarityKey=['common','fine','rare','epic','legendary','immortal'];
 const paths=['太初混元诀','青莲剑典','玄冥真水录','烛龙观星法','厚土载岳功'];
-const companionPool=[
- {name:'沈知微',title:'听雪峰 · 符修',glyph:'❄',trait:'符箓灵巧，双修悟性提升',accent:'霜华'},
- {name:'顾长离',title:'万剑山 · 剑修',glyph:'⚔',trait:'剑意相合，探索收获提升',accent:'剑心'},
- {name:'云栖月',title:'太虚谷 · 丹修',glyph:'☾',trait:'炉火相伴，寿元丹效果提升',accent:'月魄'},
- {name:'晏清和',title:'青木宗 · 灵植师',glyph:'❀',trait:'同修灵植，洞府生产提升',accent:'青木'},
- {name:'苏照野',title:'散修 · 阵师',glyph:'⌘',trait:'阵法互补，渡劫把握提升',accent:'阵纹'},
- {name:'洛云笙',title:'落霞岛 · 音修',glyph:'♫',trait:'心神相通，悟性与气运提升',accent:'余音'}
-];
 const fresh=()=>({
- version:4,createdAt:Date.now(),lastAt:Date.now(),paused:false,speed:4,activeTab:'life',
- generation:1,age:0,maxLife:100,naturalMaxLife:100,lifespanFactor:1,injuryYears:0,legacyLifeFloor:0,root:{element:'木',grade:0,name:'凡品·木灵根'},minor:1,methods:['breath'],activeMethod:'breath',children:[],realm:0,realmExp:0,spirit:0,
+ version:5,createdAt:Date.now(),lastAt:Date.now(),paused:false,speed:4,activeTab:'life',
+ generation:1,age:0,maxLife:100,naturalMaxLife:100,lifespanFactor:1,injuryYears:0,legacyLifeFloor:0,root:{element:'木',grade:0,name:'凡品·木灵根'},minor:1,methods:['breath'],activeMethod:'breath',realm:0,realmExp:0,
  daoMarks:2,potential:{root:0,wisdom:0,fortune:0,vitality:0},path:paths[0],name:'无名',origin:'青溪村散修',
- cave:{level:1,faith:0,autoCultivate:true},gear:[],equipped:{weapon:null,armor:null,charm:null},archive:[],partner:null,descendants:0,familyProsperity:0,relics:[],companionFates:[],seenCandidates:[],log:[],yearbook:[],milestones:[],pills:[0,0,0,0,0,0],pending:null,offers:{partner:null},started:false,yearTotal:0,reunionText:''
+ gear:[],equipped:{weapon:null,armor:null,charm:null},archive:[],yearbook:[],milestones:[],pills:[0,0,0,0,0,0],started:false,yearTotal:0
 });
 let state;
 try {
  const saved=localStorage.getItem(SAVE_KEY);
  const raw=saved?JSON.parse(saved):null;
- if(raw&&[1,2,3,4].includes(raw.version)){
-  if(raw.version<4)try{localStorage.setItem(`${SAVE_KEY}-backup-v${raw.version}`,saved)}catch{}
+ if(raw&&[1,2,3,4,5].includes(raw.version)){
+  if(raw.version<5)try{localStorage.setItem(`${SAVE_KEY}-backup-v${raw.version}`,saved)}catch{}
   state=normalizeState(raw);
  }else state=fresh();
 } catch {state=fresh()}
@@ -223,11 +211,12 @@ const totalPower=()=>Object.keys(state.equipped).reduce((n,s)=>n+equipmentPower(
 function save(){state.lastAt=Date.now();try{localStorage.setItem(SAVE_KEY,JSON.stringify(state))}catch{}}
 function cleanText(value,fallback='',max=140){return typeof value==='string'?value.replace(/[<>"']/g,'').slice(0,max):fallback}
 function boundedInt(value,fallback,min=0,max=1000000){return Number.isSafeInteger(value)&&value>=min&&value<=max?value:fallback}
-function normalizeItem(value){if(!value||!['weapon','armor','charm'].includes(value.slot)||!Number.isInteger(value.rarity)||value.rarity<0||value.rarity>5||!Number.isSafeInteger(value.power)||value.power<0||value.power>100000)return null;const id=typeof value.id==='string'&&/^[a-zA-Z0-9_-]{1,48}$/.test(value.id)?value.id:null;if(!id)return null;return{id,slot:value.slot,name:cleanText(value.name,'傳世法器',40),rarity:value.rarity,power:value.power,desc:cleanText(value.desc,'一件旧日法器。',120),...(value.from?{from:cleanText(value.from,'前世旧藏',60)}:{})}}
-function normalizeCompanion(value){if(!value||!['❄','⚔','☾','❀','⌘','♫'].includes(value.glyph))return null;return{name:cleanText(value.name,'有缘人',20),title:cleanText(value.title,'修行者',50),glyph:value.glyph,trait:cleanText(value.trait,'同修共进',80),accent:cleanText(value.accent,'因缘',12),affinity:boundedInt(value.affinity,30,0,100),old:!!value.old}}
-function normalizeRecord(value){if(!value||!Number.isSafeInteger(value.generation)||!Number.isSafeInteger(value.age))return null;return{generation:boundedInt(value.generation,1,1,1000000),name:cleanText(value.name,'无名',20),age:boundedInt(value.age,0,0,100000000),realm:cleanText(value.realm,'凡人',20),cause:cleanText(value.cause,'寿终坐化',80),marks:boundedInt(value.marks,0,0,100000),path:paths.includes(value.path)?value.path:paths[0],partner:cleanText(value.partner,'',20),descendants:boundedInt(value.descendants,0,0,1000)}}
+function normalizeItem(value){if(!value||!['weapon','armor','charm'].includes(value.slot)||!Number.isInteger(value.rarity)||value.rarity<0||value.rarity>5||!Number.isSafeInteger(value.power)||value.power<0||value.power>100000)return null;const id=typeof value.id==='string'&&/^[a-zA-Z0-9_-]{1,48}$/.test(value.id)?value.id:null;if(!id)return null;return{id,slot:value.slot,name:cleanText(value.name,'传世法器',40),rarity:value.rarity,power:value.power,desc:cleanText(value.desc,'一件旧日法器。',120)}}
+function strongerGear(a,b){return a.power>b.power||a.power===b.power&&a.rarity>b.rarity}
+function keepBestGear(items){const gear=[],equipped={weapon:null,armor:null,charm:null};for(const slot of Object.keys(equipped)){const best=items.filter(g=>g.slot===slot).sort((a,b)=>b.power-a.power||b.rarity-a.rarity)[0];if(best){gear.push(best);equipped[slot]=best.id}}return{gear,equipped}}
+function normalizeRecord(value){if(!value||!Number.isSafeInteger(value.generation)||!Number.isSafeInteger(value.age))return null;return{generation:boundedInt(value.generation,1,1,1000000),name:cleanText(value.name,'无名',20),age:boundedInt(value.age,0,0,100000000),realm:cleanText(value.realm,'凡人',20),cause:cleanText(value.cause,'寿终坐化',80),marks:boundedInt(value.marks,0,0,100000),path:paths.includes(value.path)?value.path:paths[0]}}
 function normalizeState(source){
- if(!source||![1,2,3,4].includes(source.version)||!Number.isSafeInteger(source.generation)||source.generation<1||!Number.isSafeInteger(source.maxLife)||source.maxLife<1)throw new Error('存档内容不完整，无法导入。');
+ if(!source||![1,2,3,4,5].includes(source.version)||!Number.isSafeInteger(source.generation)||source.generation<1||!Number.isSafeInteger(source.maxLife)||source.maxLife<1)throw new Error('存档内容不完整，无法导入。');
  const result=fresh();const old=source.version===1;
  result.createdAt=boundedInt(source.createdAt,result.createdAt,0,Number.MAX_SAFE_INTEGER);
  result.generation=boundedInt(source.generation,1,1,1000000);
@@ -236,30 +225,22 @@ function normalizeState(source){
  const exp=Number.isFinite(source.realmExp)?Math.max(0,Math.min(100,source.realmExp)):0;
  if(old&&result.realm>0){const total=exp*9;result.minor=Math.min(9,Math.floor(total/100)+1);result.realmExp=Math.min(100,total-(result.minor-1)*100)}
  else {result.minor=result.realm===0?1:boundedInt(source.minor,1,1,9);result.realmExp=exp}
- for(const key of ['spirit','daoMarks','yearTotal','descendants','familyProsperity'])result[key]=boundedInt(source[key],result[key],0,Number.MAX_SAFE_INTEGER);
+ for(const key of ['daoMarks','yearTotal'])result[key]=boundedInt(source[key],result[key],0,Number.MAX_SAFE_INTEGER);
  result.speed=[1,4,12].includes(source.speed)?source.speed:4;result.paused=!!source.paused;
- result.activeTab=source.activeTab==='bond'?'history':source.activeTab==='methods'?'life':['life','gear','cave','history'].includes(source.activeTab)?source.activeTab:'life';
+ result.activeTab=source.activeTab==='history'||source.activeTab==='bond'?'history':'life';
  result.potential={};for(const key of ['root','wisdom','fortune','vitality'])result.potential[key]=boundedInt(source.potential?.[key],0,0,100000);
  result.path=paths.includes(source.path)?source.path:paths[0];result.name=cleanText(source.name,'无名',20);
- result.origin=cleanText(source.origin,'异乡转世·一缕道痕',40);
- result.cave={level:boundedInt(source.cave?.level,1,1,10),faith:boundedInt(source.cave?.faith,0),autoCultivate:source.cave?.autoCultivate!==false};
- result.gear=Array.isArray(source.gear)?source.gear.slice(0,40).map(normalizeItem).filter(Boolean):[];
- result.equipped={};for(const slot of ['weapon','armor','charm']){const id=source.equipped?.[slot];result.equipped[slot]=result.gear.some(g=>g.id===id&&g.slot===slot)?id:null}
+ const rawMerchant=source.offers?.merchant||source.pending?.kind==='merchant'&&source.pending;
+ const gearPool=[...(Array.isArray(source.gear)?source.gear.slice(0,40):[]),...(Array.isArray(source.relics)?source.relics.slice(0,12):[]),...(rawMerchant?.item?[rawMerchant.item]:[])].map(normalizeItem).filter(Boolean);
+ Object.assign(result,keepBestGear(gearPool));
  result.archive=Array.isArray(source.archive)?source.archive.map(normalizeRecord).filter(Boolean):[];
- result.relics=Array.isArray(source.relics)?source.relics.slice(0,12).map(normalizeItem).filter(Boolean):[];
- result.partner=normalizeCompanion(source.partner);
- result.companionFates=Array.isArray(source.companionFates)?source.companionFates.slice(-20).map(x=>{const c=normalizeCompanion(x);return c?{...c,generation:boundedInt(x.generation,1,1,1000000),reunited:!!x.reunited}:null}).filter(Boolean):[];
- result.seenCandidates=Array.isArray(source.seenCandidates)?source.seenCandidates.filter(x=>typeof x==='string').map(x=>cleanText(x,'',30)).slice(-30):[];
- result.log=Array.isArray(source.log)?source.log.slice(0,30).filter(x=>x&&typeof x==='object').map(x=>({age:boundedInt(x.age,0,0,100000000),generation:boundedInt(x.generation,1,1,1000000),text:typeof x.text==='string'?x.text.slice(0,500):'',type:['gold','red'].includes(x.type)?x.type:''})):[];
- result.reunionText=cleanText(source.reunionText,'',180);
  const seed=hashRand(result.createdAt+result.generation*9973);
  result.root=source.root&&P.ELEMENTS.includes(source.root.element)&&Number.isInteger(source.root.grade)&&source.root.grade>=0&&source.root.grade<=5?{element:source.root.element,grade:source.root.grade,name:`${P.GRADES[source.root.grade].name}·${source.root.element}灵根`}:P.makeRoot(result.potential,seed);
  result.lifespanFactor=old?Math.max(.85,Math.min(1.15,.85+seed()*.30)):(Number.isFinite(source.lifespanFactor)?Math.max(.85,Math.min(1.15,source.lifespanFactor)):1);
  result.legacyLifeFloor=old?boundedInt(source.maxLife,88,1,100000000):boundedInt(source.legacyLifeFloor,0,0,100000000);
  result.injuryYears=old?0:boundedInt(source.injuryYears,0,0,100000000);
  result.methods=['breath'];if(Array.isArray(source.methods))for(const id of source.methods.slice(0,30))if(typeof id==='string'&&P.METHODS.some(m=>m.id===id)&&!result.methods.includes(id))result.methods.push(id);
- result.activeMethod=P.bestMethod(result).id;
- result.children=Array.isArray(source.children)?source.children.slice(0,20).filter(x=>x&&typeof x==='object').map(x=>({name:cleanText(x.name,'子嗣',20),grade:boundedInt(x.grade,0,0,5),element:P.ELEMENTS.includes(x.element)?x.element:'木'})):[];
+ result.activeMethod=P.bestMethod(result).id;result.methods=[result.activeMethod];
  result.pills=Array.from({length:6},(_,i)=>boundedInt(source.pills?.[i],0,0,99));
  result.yearbook=Array.isArray(source.yearbook)?source.yearbook.slice(0,300).filter(x=>x&&typeof x==='object').map(x=>({age:boundedInt(x.age,0,0,100000000),text:cleanText(x.text,'修行一年。',220),kind:['normal','fortune','danger','breakthrough','death'].includes(x.kind)?x.kind:'normal'})):[];
  result.milestones=Array.isArray(source.milestones)?source.milestones.filter(x=>x&&typeof x==='object').map(x=>({generation:boundedInt(x.generation,1,1,1000000),age:boundedInt(x.age,0,0,100000000),text:cleanText(x.text,'一段修行往事',180),kind:x.kind==='red'?'red':'gold'})):[];
@@ -269,12 +250,9 @@ function normalizeState(source){
   if(!result.yearbook.length){const seen=new Set();for(const x of oldLog){if(x.generation!==result.generation||seen.has(x.age))continue;seen.add(x.age);result.yearbook.push({age:boundedInt(x.age,0,0,100000000),text:cleanOld(x),kind:x.type==='red'?'danger':x.type==='gold'?'fortune':'normal'})}}
   if(!result.milestones.length)result.milestones=oldLog.filter(x=>['gold','red'].includes(x.type)).slice().reverse().map(x=>({generation:boundedInt(x.generation,1,1,1000000),age:boundedInt(x.age,0,0,100000000),text:cleanOld(x),kind:x.type==='red'?'red':'gold'}));
  }
- result.offers={partner:null};
- const rawPartner=source.offers?.partner||source.pending?.kind==='partner'&&source.pending;
- const rawMerchant=source.offers?.merchant||source.pending?.kind==='merchant'&&source.pending;
- if(rawPartner){const candidates=Array.isArray(rawPartner.candidates)?rawPartner.candidates.map(normalizeCompanion).filter(Boolean).slice(0,2):[];if(candidates.length)result.offers.partner={candidates,foundAt:boundedInt(rawPartner.foundAt,result.age,0,100000000)}}
- if(rawMerchant){const item=normalizeItem(rawMerchant.item);if(item&&!result.gear.some(g=>g.id===item.id))result.gear.unshift(item)}
- result.pending=null;
+ const obsoleteText=/(道侣|家族|子嗣|洞府|有缘修士|前缘|结为道侣)/;
+ result.yearbook=result.yearbook.filter(x=>!obsoleteText.test(x.text));
+ result.milestones=result.milestones.filter(x=>!obsoleteText.test(x.text));
  result.started=source.version>=3?!!source.started:(result.age>0||result.generation>1&&!['rebirth','potential'].includes(source.pending?.kind));
  if(source.pending)result.paused=false;
  P.syncLife(result);
@@ -283,67 +261,42 @@ function normalizeState(source){
  return result;
 }
 function normalizeSave(envelope){
- if(!envelope||envelope.magic!=='wan-shi-xian-tu-save'||![1,2,3,4].includes(envelope.format)||!envelope.payload||![1,2,3,4].includes(envelope.payload.version))throw new Error('这不是受支持的《万世仙途》存档文件。');
+ if(!envelope||envelope.magic!=='wan-shi-xian-tu-save'||![1,2,3,4,5].includes(envelope.format)||!envelope.payload||![1,2,3,4,5].includes(envelope.payload.version))throw new Error('这不是受支持的《万世仙途》存档文件。');
  return normalizeState(envelope.payload);
 }
-function exportSave(){save();const envelope={magic:'wan-shi-xian-tu-save',format:4,exportedAt:new Date().toISOString(),payload:state};const blob=new Blob([JSON.stringify(envelope,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download=`万世仙途-第${state.generation}世-存档.json`;document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('存档文件已导出，可传到另一台电脑。')}
+function exportSave(){save();const envelope={magic:'wan-shi-xian-tu-save',format:5,exportedAt:new Date().toISOString(),payload:state};const blob=new Blob([JSON.stringify(envelope,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download=`万世仙途-第${state.generation}世-存档.json`;document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('存档文件已导出，可传到另一台电脑。')}
 function importSaveFile(file){const reader=new FileReader();reader.onload=()=>{try{const imported=normalizeSave(JSON.parse(String(reader.result)));state=imported;state.lastAt=Date.now();save();render();toast(`已载入第 ${state.generation} 世存档。`)}catch(error){toast(error instanceof Error?error.message:'存档读取失败，请检查文件。')}};reader.onerror=()=>toast('无法读取这个文件，请重新选择存档。');reader.readAsText(file)}
 function toast(s){const old=document.querySelector('.toast');if(old)old.remove();const n=document.createElement('div');n.className='toast';n.textContent=s;document.body.append(n);clearTimeout(toastTimer);toastTimer=setTimeout(()=>n.remove(),2500)}
-function log(text,type=''){state.log.unshift({age:state.age,generation:state.generation,text,type});if(state.log.length>30)state.log.length=30}
 function hashRand(seed){let t=seed+0x6D2B79F5;return()=>{t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}}
 function rng(){return Math.random()}
 function saveAndRender(){save();render()}
 function stageBars(){return `<div class="stage-list">${Array.from({length:state.realm===0?1:9},(_,i)=>{const num=i+1,pct=state.realm===0?state.realmExp:num<state.minor?100:num===state.minor?state.realmExp:0;return `<div class="stage-row" data-minor="${num}"><span>${state.realm===0?'引气':`第 ${num} 层`}</span><div class="progress"><i style="width:${Math.floor(pct)}%"></i></div><b>${Math.floor(pct)}%</b></div>`}).join('')}</div>`}
-function safeLogMarkup(value){return esc(value).replace(/&lt;b&gt;/g,'<b>').replace(/&lt;\/b&gt;/g,'</b>')}
 function uiRecent(){
  const events=state.yearbook.slice(0,3);
- return events.length?events.map(x=>`<div class="ui-event"><span>${x.age} 岁</span><p>${esc(x.text)}</p></div>`).join(''):'<div class="ui-muted">新的一世刚刚开始。</div>';
+ return events.length?events.map(x=>`<div class="ui-event ${x.kind==='danger'?'ui-danger':''}"><span>${x.age} 岁</span><p>${esc(x.text)}</p></div>`).join(''):'<div class="ui-muted">新的一世刚刚开始。</div>';
 }
 function uiHead(title,subtitle){return `<div class="ui-page-head"><div><div class="ui-eyebrow">第 ${state.generation} 世 · ${realmName()}</div><h1>${title}</h1><p>${subtitle}</p></div><span class="ui-soul">☯ 同一缕神魂</span></div>`}
 function simpleLifeView(){
- const method=P.bestMethod(state),remaining=Math.max(0,state.maxLife-state.age);
- const notices=[];
- if(state.offers?.partner)notices.push(`<button class="ui-notice" data-tab="history">❀ 有人与你结缘 <span>去看看 →</span></button>`);
- if(state.injuryYears>0)notices.push(`<button class="ui-notice danger" data-tab="cave">伤势折寿 ${state.injuryYears} 年 <span>查看丹药 →</span></button>`);
+ const method=P.bestMethod(state),remaining=Math.max(0,state.maxLife-state.age),pillCount=state.pills.reduce((a,b)=>a+b,0);
+ const slots=[['weapon','兵刃'],['armor','衣甲'],['charm','灵饰']];
  return `<section class="ui-view" data-view="life">${uiHead('修行','光阴自行流转，神魂历世而不灭。')}
  <article class="ui-hero"><div class="ui-hero-top"><span class="ui-kicker">此世修行</span><span class="ui-live">${state.paused?'已暂停':'● 自动修行中'}</span></div>
  <div class="ui-realm">${realmName()}<small>${state.realm===0?'引气':`第 ${state.minor} 层`}</small></div>
  <div class="ui-progress-label"><span>距下一层</span><strong>${Math.floor(state.realmExp)}%</strong></div><div class="ui-progress"><i style="width:${Math.floor(state.realmExp)}%"></i></div>
  <div class="ui-hero-foot"><span>${state.age} 岁 <em>/</em> 寿限 ${state.maxLife} 岁</span><span>余 ${remaining} 年</span></div></article>
- ${notices.length?`<div class="ui-notices">${notices.join('')}</div>`:''}
- <div class="ui-tags"><span class="grade-${state.root.grade}">✦ ${esc(state.root.name)}</span><span class="grade-${method.grade}">✧ ${method.name}</span><span>洞府第 ${state.cave.level} 重</span></div>
+ <div class="ui-tags"><span class="grade-${state.root.grade}">✦ ${esc(state.root.name)}</span><span class="grade-${method.grade}">✧ ${esc(method.name)}</span><span>法宝灵蕴 +${totalPower()}</span><span>回春丹 ${pillCount} 枚</span></div>
+ ${state.injuryYears?`<p class="ui-muted">伤势折寿 ${state.injuryYears} 年；获得回春丹后自动疗伤。</p>`:''}
  <div class="ui-secondary"><div class="ui-section-title">最近发生</div>${uiRecent()}</div>
  <details class="ui-detail" data-detail="stages"><summary>九层修炼进度 <span>查看全部</span></summary>${stageBars()}</details>
- <details class="ui-detail" data-detail="methods"><summary>已习功法 <span>${state.methods.length} 部</span></summary><div class="ui-detail-body">${state.methods.map(id=>{const m=P.methodById(id);return `<div class="ui-simple-row"><span class="grade-${m.grade}">${m.name}</span><small>${P.GRADES[m.grade].name} · ${m.element}行${m.id===method.id?' · 修习中':''}</small></div>`}).join('')}</div></details>
+ <details class="ui-detail" data-detail="gear"><summary>随身法宝 <span>自动佩戴最强</span></summary><div class="ui-detail-body">${slots.map(([slot,label])=>{const item=state.gear.find(g=>g.slot===slot);return `<div class="ui-simple-row"><span>${label} · <b class="${item?`grade-${item.rarity}`:''}">${item?esc(item.name):'暂无'}</b></span><small>${item?`${P.GRADES[item.rarity].name} · 灵蕴 +${item.power}`:'历练中寻得'}</small></div>`}).join('')}</div></details>
  <details class="ui-detail" data-detail="yearbook"><summary>本世年鉴 <span>最近 ${state.yearbook.length} 年</span></summary><div class="ui-detail-body ui-yearbook">${state.yearbook.length?state.yearbook.map(x=>`<div class="ui-event ${x.kind==='danger'?'ui-danger':''}"><span>${x.age} 岁</span><p>${esc(x.text)}</p></div>`).join(''):'<p class="ui-muted">这一世尚未走过一年。</p>'}</div></details>
  </section>`;
 }
-function simpleGearView(){
- const slots=[['weapon','兵刃'],['armor','衣甲'],['charm','灵饰']];
- const inventory=state.gear.filter(g=>!Object.values(state.equipped).includes(g.id)).sort((a,b)=>b.rarity-a.rarity||b.power-a.power);
- return `<section class="ui-view" data-view="gear">${uiHead('法宝','得到法宝后，由你决定穿戴。')}
- <article class="ui-panel"><div class="ui-section-title">佩戴中 <small>灵蕴合计 +${totalPower()}</small></div><div class="ui-slot-grid">${slots.map(([slot,label])=>{const item=state.gear.find(g=>g.id===state.equipped[slot]);return `<div class="ui-slot"><span>${label}</span><strong class="${item?`grade-${item.rarity}`:''}">${item?esc(item.name):'空'}</strong>${item?`<button data-action="unequip" data-id="${item.id}">卸下</button>`:''}</div>`}).join('')}</div></article>
- <article class="ui-panel"><div class="ui-section-title">纳戒 <small>${inventory.length} 件</small></div>${inventory.length?inventory.map(g=>`<div class="ui-item"><div><strong class="grade-${g.rarity}">${esc(g.name)}</strong><small>${P.GRADES[g.rarity].name} · 灵蕴 +${g.power}</small></div><button class="ui-button" data-action="equip" data-id="${g.id}">佩戴</button></div>`).join(''):'<p class="ui-muted">还没有新法宝。探索会自动进行。</p>'}</article>
- ${state.relics.length?`<details class="ui-detail" data-detail="relics"><summary>前世旧藏 <span>${state.relics.length} 件</span></summary><div class="ui-detail-body">${state.relics.map((g,i)=>`<div class="ui-item"><div><strong class="grade-${g.rarity}">${esc(g.name)}</strong><small>${esc(g.from||'前世旧藏')}</small></div><button class="ui-button" data-action="recover-relic" data-index="${i}">寻回</button></div>`).join('')}</div></details>`:''}
- </section>`;
-}
-function simpleCaveView(){
- const pills=state.pills.map((count,i)=>count?`<div class="ui-item"><div><strong class="grade-${i}">${P.GRADES[i].name}回春丹</strong><small>每枚可恢复最多 ${PILL_HEAL[i]} 年伤势</small></div><span class="ui-pill-count">× ${count}</span></div>`:'').join('');
- return `<section class="ui-view" data-view="cave">${uiHead('洞府','灵脉自行成长，回春丹随历练机缘而来。')}
- <div class="ui-metrics"><div><span>洞府灵脉</span><strong>第 ${state.cave.level} 重</strong></div><div><span>家族兴盛</span><strong>${state.familyProsperity}</strong></div><div><span>回春丹</span><strong>${state.pills.reduce((a,b)=>a+b,0)} 枚</strong></div></div>
- <article class="ui-panel"><div class="ui-section-title">寿元与伤势</div><div class="ui-lifespan"><span>自然寿限 ${state.naturalMaxLife} 岁</span><span class="${state.injuryYears?'ui-danger':''}">伤势折寿 ${state.injuryYears} 年</span><strong>现有寿限 ${state.maxLife} 岁</strong></div><p class="ui-muted" style="margin-top:14px">受伤时会自动使用合适的回春丹，最多恢复到自然寿限。</p></article>
- <article class="ui-panel"><div class="ui-section-title">洞府丹藏 <small>自动疗伤</small></div>${pills||'<p class="ui-muted">暂无丹药。历练可能获得丹药，偶尔也会在坊市遇得高品丹药。</p>'}</article>
- <article class="ui-panel"><div class="ui-section-title">日常经营 <small>自动</small></div><p class="ui-muted">洞府灵脉随岁月和家族传承自行成长。</p>${!state.cave.autoCultivate?'<button class="ui-button" data-action="toggle-cultivate">恢复洞府经营</button>':''}</article>
- </section>`;
-}
 function simpleHistoryView(){
- const candidate=state.offers?.partner?.candidates?.[0];
  return `<section class="ui-view" data-view="history">${uiHead('轮回','道痕留在神魂中，每一世都能继续前行。')}
  <article class="ui-panel ui-soul-panel"><div><span class="ui-kicker">可分配道痕</span><div class="ui-mark-count">${money(state.daoMarks)}</div><p>由你亲自分配，未使用的道痕会保留。</p></div><span class="ui-watermark">☯</span></article>
- <article class="ui-panel"><div class="ui-section-title">神魂潜力 <small>手动分配</small></div><div class="ui-potential-grid">${potentialTypes.map(x=>`<div class="ui-potential"><span>${x.glyph} ${x.name}</span><strong>${statLevel(x.key)}</strong><button class="ui-button" data-action="allocate-potential" data-key="${x.key}" ${state.daoMarks<=0?'disabled':''}>＋ 提升</button></div>`).join('')}</div><p class="ui-muted">灵根影响来世资质；悟性、气运与体魄随灵魂积累。</p></article>
- ${candidate?`<article class="ui-offer"><div><span class="ui-kicker">今世因缘</span><h2>${candidate.glyph} ${esc(candidate.name)}</h2><p>${esc(candidate.title)} · ${esc(candidate.trait)}</p></div><div class="ui-actions"><button class="ui-button primary" data-action="choose-partner" data-index="0">结为道侣</button><button class="ui-button" data-action="decline-partner">继续独行</button></div></article>`:''}
- <article class="ui-panel"><div class="ui-section-title">今世人间</div><p class="ui-summary">${state.partner?`道侣 ${esc(state.partner.name)} · 子女 ${state.descendants} 位`:'尚无道侣'} <span>家族兴盛 ${state.familyProsperity}</span></p>${state.children.length?`<details class="ui-detail nested" data-detail="children"><summary>子女灵根 <span>${state.children.length} 位</span></summary><div class="ui-detail-body">${state.children.map(c=>`<div class="ui-simple-row"><span>${esc(c.name)}</span><small class="grade-${c.grade}">${P.GRADES[c.grade].name}·${c.element}灵根</small></div>`).join('')}</div></details>`:''}</article>
-  <details class="ui-detail" data-detail="milestones"><summary>历世大事 <span>${state.milestones.length} 件</span></summary><div class="ui-detail-body ui-yearbook">${state.milestones.length?state.milestones.slice().reverse().map(x=>`<div class="ui-event ${x.kind==='red'?'ui-danger':''}"><span>第${x.generation}世<br>${x.age}岁</span><p>${esc(x.text)}</p></div>`).join(''):'<p class="ui-muted">重要的突破与机缘会留在这里。</p>'}</div></details>
+ <article class="ui-panel"><div class="ui-section-title">神魂潜力 <small>手动分配</small></div><div class="ui-potential-grid">${potentialTypes.map(x=>`<div class="ui-potential"><span>${x.glyph} ${x.name}</span><strong>${statLevel(x.key)}</strong><button class="ui-button" data-action="allocate-potential" data-key="${x.key}" ${state.daoMarks<=0?'disabled':''}>＋ 提升</button></div>`).join('')}</div><p class="ui-muted">灵根影响来世资质；悟性、气运与体魄随神魂积累。</p></article>
+ <details class="ui-detail" data-detail="milestones"><summary>历世大事 <span>${state.milestones.length} 件</span></summary><div class="ui-detail-body ui-yearbook">${state.milestones.length?state.milestones.slice().reverse().map(x=>`<div class="ui-event ${x.kind==='red'?'ui-danger':''}"><span>第${x.generation}世<br>${x.age}岁</span><p>${esc(x.text)}</p></div>`).join(''):'<p class="ui-muted">重要的突破与机缘会留在这里。</p>'}</div></details>
  <details class="ui-detail" data-detail="archive"><summary>前世记录 <span>${state.archive.length} 世</span></summary><div class="ui-detail-body">${state.archive.length?state.archive.slice().reverse().slice(0,30).map(r=>`<div class="ui-simple-row"><span>第 ${r.generation} 世 · ${esc(r.realm)}</span><small>${r.age} 岁 · ${esc(r.cause)} · +${r.marks} 道痕</small></div>`).join(''):'<p class="ui-muted">尚未经历轮回。</p>'}</div></details>
  <details class="ui-detail" data-detail="manage"><summary>存档管理 <span>导入 / 导出 / 重启</span></summary><div class="ui-detail-body ui-actions"><button class="ui-button" data-action="export-save">导出存档</button><button class="ui-button" data-action="import-save">导入存档</button><button class="ui-button" data-action="reset">重启游戏</button></div></details>
  </section>`;
@@ -392,9 +345,10 @@ function rollYearlyEvent(){
   return {text:receivePill(grade,'外出历练，'),kind:'fortune'};
  }
  if(roll<marketChance+pillChance+gearChance){
-  const gear=resolveGear();
+  const found=resolveGear(),gear=found.item;
+  if(!found.upgraded)return {text:`山野历练，发现${gear.name}，灵蕴不及随身法宝，未留存。`,kind:'normal'};
   if(gear.rarity>=4)rememberMilestone(`历练得到${gear.name}（${P.GRADES[gear.rarity].name}）`);
-  return {text:`山野历练，发现${gear.name}（${P.GRADES[gear.rarity].name}）。`,kind:'fortune'};
+  return {text:`山野历练，发现${gear.name}（${P.GRADES[gear.rarity].name}），已自动佩戴${found.replaced?'并替换旧法宝':''}。`,kind:'fortune'};
  }
  if(roll<marketChance+pillChance+gearChance+insightChance){
   const gain=Math.min(15,3+Math.floor(rng()*7)+Math.floor(statLevel('wisdom')*.2));
@@ -410,28 +364,20 @@ function rollYearlyEvent(){
 
 function render(){
  const opened=new Set(app.querySelectorAll?[...app.querySelectorAll('details[open][data-detail]')].map(x=>x.dataset.detail):[]);
- const tabs={life:simpleLifeView,gear:simpleGearView,cave:simpleCaveView,history:simpleHistoryView};
+ const tabs={life:simpleLifeView,history:simpleHistoryView};
  if(!tabs[state.activeTab])state.activeTab='life';
- const entries=[['life','☯','修行'],['gear','⚔','法宝'],['cave','⌂','洞府'],['history','☷','轮回']];
- app.innerHTML=`<header class="ui-top"><button class="ui-brand" data-tab="life"><span class="ui-brand-mark">☯</span><strong>万世仙途</strong></button><div class="ui-top-status">第 ${state.generation} 世 · <b>${realmName()}</b></div><div class="ui-top-controls">${[1,4,12].map(s=>`<button data-action="speed" data-speed="${s}" class="${state.speed===s?'active':''}">${s}×</button>`).join('')}<button data-action="pause" aria-label="${state.paused?'继续':'暂停'}">${state.paused?'▶':'Ⅱ'}</button></div><input class="save-file-input" id="save-file" type="file" accept=".json,application/json"></header><div class="ui-shell"><nav class="ui-nav" aria-label="游戏页面">${entries.map(([key,glyph,label])=>`<button data-tab="${key}" class="${state.activeTab===key?'active':''}"><span>${glyph}</span>${label}${key==='gear'&&state.gear.some(g=>!Object.values(state.equipped).includes(g.id))||key==='history'&&state.offers?.partner?'<i></i>':''}</button>`).join('')}</nav><main class="ui-content">${tabs[state.activeTab]()}</main></div>`;
+ const entries=[['life','☯','修行'],['history','☷','轮回']];
+ app.innerHTML=`<header class="ui-top"><button class="ui-brand" data-tab="life"><span class="ui-brand-mark">☯</span><strong>万世仙途</strong></button><div class="ui-top-status">第 ${state.generation} 世 · <b>${realmName()}</b></div><div class="ui-top-controls">${[1,4,12].map(s=>`<button data-action="speed" data-speed="${s}" class="${state.speed===s?'active':''}">${s}×</button>`).join('')}<button data-action="pause" aria-label="${state.paused?'继续':'暂停'}">${state.paused?'▶':'Ⅱ'}</button></div><input class="save-file-input" id="save-file" type="file" accept=".json,application/json"></header><div class="ui-shell"><nav class="ui-nav" aria-label="游戏页面">${entries.map(([key,glyph,label])=>`<button data-tab="${key}" class="${state.activeTab===key?'active':''}"><span>${glyph}</span>${label}</button>`).join('')}</nav><main class="ui-content">${tabs[state.activeTab]()}</main></div>`;
  if(app.querySelectorAll)for(const detail of app.querySelectorAll('details[data-detail]'))if(opened.has(detail.dataset.detail))detail.open=true;
 }
 function makeGear(slot,forceRarity){const pool=gearNames[slot],max=pool.length-1;let rarity=forceRarity??Math.min(max,Math.floor(rng()*6+statLevel('fortune')*.13));const pick=Math.min(max,rarity);return{id:`g${Date.now().toString(36)}${Math.floor(rng()*1e5).toString(36)}`,slot,name:pool[pick],rarity,power:1+pick*3+Math.floor(rng()*3),desc:['寻常法器，尚有温养余地。','灵机流转，贴合修行之用。','器有灵性，内蕴一缕道韵。','古法炼制，灵辉已成。','天地奇珍，足以守护数世。','天地初开时遗落的道器。'][pick]}}
-function resolveGear(){const slot=['weapon','armor','charm'][Math.floor(rng()*3)];const g=makeGear(slot);state.gear.unshift(g);if(state.gear.length>36){for(let i=state.gear.length-1;i>=0;i--)if(!Object.values(state.equipped).includes(state.gear[i].id)){state.gear.splice(i,1);break}}return g;}
+function resolveGear(){const slot=['weapon','armor','charm'][Math.floor(rng()*3)],item=makeGear(slot),old=state.gear.find(g=>g.slot===slot);if(old&&!strongerGear(item,old))return{item,upgraded:false};state.gear=state.gear.filter(g=>g.slot!==slot);state.gear.push(item);state.equipped[slot]=item.id;return{item,upgraded:true,replaced:old?.name||''}}
 function tick(){
  if(state.paused)return;
  for(let y=0;y<state.speed;y++){
   state.age++;state.yearTotal++;
   if(state.age>=state.maxLife){recordYear('寿元走到尽头，神魂转入下一世。','death');die('寿元已尽，寿终坐化');break}
   const notes=[];
-  if(state.cave.autoCultivate){
-   state.cave.faith+=1+Math.floor(state.familyProsperity/20);
-   if(state.cave.level<10&&state.cave.faith>=state.cave.level*45){state.cave.faith-=state.cave.level*45;state.cave.level++;notes.push(`洞府灵脉成长至第${state.cave.level}重。`)}
-  }
-  if(state.partner){
-   state.partner.affinity=Math.min(100,state.partner.affinity+(rng()<.18?1:0));
-   if(state.age%9===0&&state.descendants<9&&rng()<.44){state.descendants++;state.familyProsperity++;const grade=Math.min(5,Math.floor((statLevel('root')+Math.floor(rng()*8))/8));state.children.push({name:`${state.partner.name.slice(0,1)}氏后人·${state.descendants}`,grade,element:P.ELEMENTS[Math.floor(rng()*5)]});notes.push(`家族迎来第${state.descendants}位子嗣。`)}
-  }
   const encounter=rollYearlyEvent();if(encounter.text)notes.push(encounter.text);
   const progress=Math.max(1,Math.round(P.annualProgress(state,totalPower())));
   const outcome=P.advance(state,rng,totalPower());
@@ -440,10 +386,6 @@ function tick(){
   if(outcome.kind==='realm'){headline=`破境成功，踏入${realmName()}，寿元随之增长。`;kind='breakthrough';rememberMilestone(`踏入${realmName()}境`)}
   if(outcome.kind==='setback'){headline=`冲关失利，伤势折寿${outcome.injury}年。`;kind='danger';if(outcome.injury>=20)rememberMilestone(`冲关失利，折损${outcome.injury}年寿元`,'red')}
   if(state.age%13===0&&rng()<.32){const found=P.discoverMethod(state,rng);if(found){notes.push(`领悟${found.name}（${P.GRADES[found.grade].name}）。`);if(found.grade>=4)rememberMilestone(`习得${found.name}（${P.GRADES[found.grade].name}）`)}}
-  if(state.age>=18&&state.age<Math.min(160,state.maxLife-8)&&!state.partner&&!state.offers.partner&&state.age%8===2&&rng()<(.18+statLevel('fortune')*.012)){
-   state.offers.partner={candidates:[pickCandidate()],foundAt:state.age};notes.push('山道遇见一位有缘修士，等你决定是否结缘。');
-  }
-  if(state.age%5===0)state.spirit+=1+Math.floor(statLevel('root')/3)+state.cave.level;
   if(state.realm>=4&&state.age%19===0&&rng()>(.8+statLevel('vitality')*.012+statLevel('wisdom')*.006)){
    const hurt=P.injure(state,Math.round(state.naturalMaxLife*.025));if(hurt>0){notes.push(`天劫擦身，伤势折寿${hurt}年。`);kind='danger';if(hurt>=20)rememberMilestone(`天劫重伤，折损${hurt}年寿元`,'red')}
   }
@@ -453,48 +395,33 @@ function tick(){
  }
  saveAndRender();
 }
-function pickCandidate(){const chanceOld=Math.min(.55,state.companionFates.filter(x=>!x.reunited).length*.18+(state.companionFates.length?statLevel('fortune')*.012:0));if(state.companionFates.length&&rng()<chanceOld){const old=state.companionFates.find(x=>!x.reunited);if(old){old.reunited=true;state.reunionText=`前世相伴之人「${old.name}」带着新的身份再次出现。也许是因缘未尽，也许只是相似的魂光。`;return{name:old.name,title:old.title,glyph:old.glyph,trait:`前缘再续，缘深道痕相应`,accent:old.accent,old:true}}}return{...companionPool[Math.floor(rng()*companionPool.length)],old:false}}
 function die(cause){
- const bonusMarks=1+Math.floor(state.age/20)+Math.floor(state.realm/2)+(state.partner?1:0)+(state.descendants>=2?1:0);
- const rec={generation:state.generation,name:state.name,age:state.age,realm:realmName(),cause,marks:bonusMarks,path:state.path,partner:state.partner?.name||'',descendants:state.descendants};
+ const bonusMarks=1+Math.floor(state.age/20)+Math.floor(state.realm/2);
+ const rec={generation:state.generation,name:state.name,age:state.age,realm:realmName(),cause,marks:bonusMarks,path:state.path};
  state.archive.push(rec);state.daoMarks+=bonusMarks;rememberMilestone(`${cause}，得${bonusMarks}点道痕`,'red');
- if(state.partner){state.companionFates.push({...state.partner,generation:state.generation,reunited:false});if(state.companionFates.length>20)state.companionFates.shift()}
- state.familyProsperity+=state.descendants+Math.floor(state.cave.level/2);
- if(state.gear.length){const legacy=state.gear.slice().sort((a,b)=>b.rarity-a.rarity)[0];if(legacy.rarity>=1&&state.relics.length<12)state.relics.unshift({...legacy,from:`第 ${state.generation} 世 · ${state.name}`})}
- state.generation++;state.age=0;state.realm=0;state.realmExp=0;state.spirit=0;state.yearbook=[];
- state.gear=[];state.equipped={weapon:null,armor:null,charm:null};state.partner=null;state.descendants=0;
- state.path=paths[Math.floor(rng()*paths.length)];state.origin=state.familyProsperity>2?'家族旁支·灵脉余泽':'异乡转世·一缕道痕';
- state.name=state.familyProsperity>3?['沈归尘','顾青崖','云照月','晏无咎'][Math.floor(rng()*4)]:'无名';
- Object.assign(state,P.newLifeFields(state.potential,rng));state.offers={partner:null};state.pending=null;state.started=true;state.paused=false;P.syncLife(state);
+ state.generation++;state.age=0;state.realm=0;state.realmExp=0;state.yearbook=[];
+ state.path=paths[Math.floor(rng()*paths.length)];state.name='无名';
+ Object.assign(state,P.newLifeFields(state.potential,rng));state.started=true;state.paused=false;P.syncLife(state);
  save();render();
 }
 function allocatePotential(key){
  if(!potentialTypes.some(x=>x.key===key)||state.daoMarks<=0)return;
- state.daoMarks--;state.potential[key]++;P.syncLife(state);log(`${potentialTypes.find(x=>x.key===key).name}潜力提升一层。`,'gold');saveAndRender();
+ state.daoMarks--;state.potential[key]++;P.syncLife(state);saveAndRender();
 }
-function equip(id){const item=state.gear.find(x=>x.id===id);if(!item)return;const old=state.equipped[item.slot];state.equipped[item.slot]=id;log(`你将「<b>${item.name}</b>」佩于身侧，灵蕴增加。`,'gold');if(old)toast(`已更换${item.slot==='weapon'?'兵刃':item.slot==='armor'?'衣甲':'灵饰'}。原法器收入纳戒。`);else toast(`已佩戴法宝「${item.name}」。`);saveAndRender()}
-function recoverRelic(i){const relic=state.relics[i];if(!relic)return;if(state.gear.length>=20){toast('纳戒已满，先整理法宝。');return}state.relics.splice(i,1);const item={...relic,id:`g${Date.now().toString(36)}${Math.floor(rng()*1e4).toString(36)}`};state.gear.unshift(item);log(`循着家族旧忆寻回「<b>${item.name}</b>」，来自${item.from}。`,'gold');saveAndRender();toast(`找回传世灵器：${item.name}`)}
 function action(name,el){
  switch(name){
   case'pause':state.paused=!state.paused;saveAndRender();break;
   case'speed':if([1,4,12].includes(Number(el.dataset.speed)))state.speed=Number(el.dataset.speed);saveAndRender();break;
   case'allocate-potential':allocatePotential(el.dataset.key);break;
-  case'equip':equip(el.dataset.id);break;
-  case'unequip':{const item=state.gear.find(x=>x.id===el.dataset.id);if(item){state.equipped[item.slot]=null;saveAndRender()}break}
-  case'choose-partner':{const c=state.offers.partner?.candidates?.[Number(el.dataset.index)];if(!c)return;state.partner={...c,affinity:30};state.offers.partner=null;log(`你与 <b>${esc(c.name)}</b> 结为道侣。`,'gold');rememberMilestone(`与${c.name}结为道侣`);saveAndRender();break}
-  case'decline-partner':state.offers.partner=null;saveAndRender();break;
-  case'recover-relic':recoverRelic(Number(el.dataset.index));break;
-  case'toggle-cultivate':state.cave.autoCultivate=!state.cave.autoCultivate;saveAndRender();break;
   case'reset':if(confirm('确定清除本机存档，从第一世重新开始吗？此操作无法撤回。')){localStorage.removeItem(SAVE_KEY);state=fresh();Object.assign(state,P.newLifeFields(state.potential,rng));state.started=true;P.syncLife(state);saveAndRender()}break;
  }
 }
 function bind(){app.addEventListener('click',e=>{const nav=e.target.closest('[data-tab]');if(nav&&!nav.dataset.action){state.activeTab=nav.dataset.tab;saveAndRender();return}const btn=e.target.closest('[data-action]');if(btn){e.preventDefault();if(btn.dataset.action==='toggle-transfer'){const panel=document.getElementById('transfer-panel');if(panel)panel.hidden=!panel.hidden;return}if(btn.dataset.action==='export-save'){exportSave();return}if(btn.dataset.action==='import-save'){document.getElementById('save-file')?.click();return}action(btn.dataset.action,btn);return}const navb=e.target.closest('.nav-btn');if(navb){state.activeTab=navb.dataset.tab;saveAndRender()}});app.addEventListener('change',e=>{if(e.target?.id==='save-file'&&e.target.files?.[0]){importSaveFile(e.target.files[0]);e.target.value=''}})}
 function init(){
  if(!state.generation)state=fresh();
- if(!state.started){Object.assign(state,P.newLifeFields(state.potential,rng));state.started=true;state.pending=null;state.paused=false}
+ if(!state.started){Object.assign(state,P.newLifeFields(state.potential,rng));state.started=true;state.paused=false}
  P.syncLife(state);
  if(state.age>=state.maxLife)die('寿元已尽，寿终坐化');
- if(!state.log.length)log('第一缕神魂入世，修行自行开始。');
  bind();render();interval=setInterval(tick,1000);
  setInterval(()=>{if(!state.paused)save()},10000);window.addEventListener('beforeunload',save);
 }
