@@ -76,6 +76,8 @@ button{font-family:inherit}.app{min-height:100vh}.ui-top{height:80px;border-bott
 @media(max-width:640px){.ui-nav{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .ui-equipped{margin:13px 0 0;padding:18px 22px;background:#16221c;border:1px solid var(--line);border-radius:12px}.ui-equipped .ui-section-title{margin-bottom:12px}.ui-equipped-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.ui-equipped-item{min-width:0;padding:11px 13px;background:#101b15;border:1px solid var(--line);border-radius:8px}.ui-equipped-item span,.ui-equipped-item small{display:block;color:#9bab9c;font-size:12px}.ui-equipped-item strong{display:block;margin:5px 0;font-size:15px;font-weight:500;overflow-wrap:anywhere}
 @media(max-width:640px){.ui-equipped{padding:15px}.ui-equipped-grid{grid-template-columns:1fr;gap:5px}.ui-equipped-item{display:grid;grid-template-columns:42px minmax(0,1fr) auto;align-items:center;gap:7px;padding:9px 10px}.ui-equipped-item strong{margin:0;font-size:14px}.ui-equipped-item small{font-size:11px;text-align:right}}
+.ui-potential small{color:#9bab9c;font-size:12px;line-height:1.5;min-height:36px}
+.ui-bottleneck-hint{margin-top:10px;color:#d8c897;font-size:12px}
 
 </style>
 </head>
@@ -116,7 +118,7 @@ function makeRoot(potential,rng=Math.random){
 }
 function newLifeFields(potential,rng=Math.random){return {
  root:makeRoot(potential,rng),lifespanFactor:Math.round((0.85+rng()*0.30)*1000)/1000,
- injuryYears:0,minor:1
+ injuryYears:0,minor:1,bottleneck:0
 }}
 function methodById(id){return METHODS.find(x=>x.id===id)||METHODS[0]}
 function affinity(method,root){return method.element==='通'?1:method.element===root?.element?1.12:0.87}
@@ -145,25 +147,33 @@ function heal(state,years){const recovered=Math.min(Math.max(0,Math.floor(value(
 function annualProgress(state,power=0){
  const rootGrade=clamp(state.root?.grade||0,0,5);
  const p=state.potential||{};
- const soul=1+Math.min(0.72,Math.max(0,value(p.root))*0.025)+Math.min(0.34,Math.max(0,value(p.wisdom))*0.012);
+ const soul=1+Math.min(0.72,Math.max(0,value(p.root))*0.025);
  const root=1+rootGrade*0.105;
  const method=methodScore(bestMethod(state),state.root);
  const gear=1+Math.min(0.12,Math.max(0,power)*0.003);
  const efficiency=Math.min(3.6,soul*root*method*gear);
  return 100*efficiency/WORK[clamp(state.realm||0,0,10)];
 }
-function breakthroughChance(state){return clamp(0.62+Math.max(0,value(state.potential?.wisdom))*0.014+bestMethod(state).breakthrough,0.62,0.94)}
+function breakthroughChance(state){return clamp(0.4+Math.max(0,value(state.potential?.wisdom))*0.02+bestMethod(state).breakthrough,0.4,0.92)}
 function advance(state,rng=Math.random,power=0){
- state.realmExp=clamp(value(state.realmExp)+annualProgress(state,power),0,100);
- if(state.realmExp<100)return {kind:'practice'};
- if(state.realm===0){state.realm=1;state.minor=1;state.realmExp=0;syncLife(state);return {kind:'realm',realm:1}}
- if(state.minor<9){state.minor++;state.realmExp=0;return {kind:'minor',minor:state.minor}}
- if(state.realm>=10){state.realmExp=0;return {kind:'practice'}}
- if(rng()<breakthroughChance(state)){
-  state.realm++;state.minor=1;state.realmExp=0;syncLife(state);return {kind:'realm',realm:state.realm};
+ const annual=annualProgress(state,power);
+ if(state.realm>0&&state.realm<10&&state.minor===9&&state.realmExp>=100){
+  const wisdom=Math.max(0,value(state.potential?.wisdom));
+  state.bottleneck=clamp(value(state.bottleneck)+annual*(4+Math.min(30,wisdom)*0.16),0,100);
+  if(state.bottleneck<100)return {kind:'bottleneck',progress:state.bottleneck};
+  if(rng()<breakthroughChance(state)){
+   state.realm++;state.minor=1;state.realmExp=0;state.bottleneck=0;syncLife(state);return {kind:'realm',realm:state.realm};
+  }
+  state.bottleneck=55;
+  const injury=injure(state,Math.max(1,Math.round(state.naturalMaxLife*0.018)));
+  return {kind:'setback',injury};
  }
- state.realmExp=68;const injury=injure(state,Math.max(1,Math.round(state.naturalMaxLife*0.018)));
- return {kind:'setback',injury};
+ state.realmExp=clamp(value(state.realmExp)+annual,0,100);
+ if(state.realmExp<100)return {kind:'practice'};
+ if(state.realm===0){state.realm=1;state.minor=1;state.realmExp=0;state.bottleneck=0;syncLife(state);return {kind:'realm',realm:1}}
+ if(state.minor<9){state.minor++;state.realmExp=0;state.bottleneck=0;return {kind:'minor',minor:state.minor}}
+ if(state.realm>=10){state.realmExp=0;return {kind:'practice'}}
+ return {kind:'bottleneck',progress:state.bottleneck};
 }
 const api={GRADES,ELEMENTS,METHODS,BASE_LIFE,WORK,makeRoot,newLifeFields,bestMethod,methodById,methodScore,learnMethod,discoverMethod,naturalLife,syncLife,injure,heal,annualProgress,breakthroughChance,advance};
 scope.XianTuProgression=api;
@@ -178,16 +188,16 @@ const SAVE_KEY='wan-shi-xian-tu-v3';
 const P=globalThis.XianTuProgression;
 const realmNames=['凡人','炼气','筑基','金丹','元婴','化神','炼虚','合体','大乘','渡劫','真仙'];
 const potentialTypes=[
- {key:'root',name:'灵根',glyph:'✦',desc:'更容易感应天地灵气，提升修行速度。'},
- {key:'wisdom',name:'悟性',glyph:'☼',desc:'功法一闻即明，提升突破与渡劫的把握。'},
- {key:'fortune',name:'气运',glyph:'❖',desc:'机缘常不期而遇，探索更易觅得珍宝。'},
- {key:'vitality',name:'体魄',glyph:'☯',desc:'身如山岳，延长寿元并提高劫后生机。'}
+ {key:'root',name:'灵根',glyph:'✦',desc:'提升每年的修炼速度。'},
+ {key:'wisdom',name:'悟性',glyph:'☼',desc:'更快化解大境界瓶颈，提高破境成功率。'},
+ {key:'fortune',name:'气运',glyph:'❖',desc:'提高历练事件遇到好结果的机会。'},
+ {key:'vitality',name:'体魄',glyph:'☯',desc:'增加攻击、战力与境界区间内的寿元。'}
 ];
 const gearNames={weapon:['松纹剑','赤霄短刃','青冥剑胚','逐月飞剑','太虚古剑','玄阳斩龙剑'],armor:['素绡法衣','青鳞护心甲','流云仙氅','山河玄甲','九转星衣','无相天衣'],charm:['凝神玉佩','月华灵珠','问道古钱','紫府莲台','乾坤定魂印','太初道种']};
 const paths=['太初混元诀','青莲剑典','玄冥真水录','烛龙观星法','厚土载岳功'];
 const fresh=()=>({
- version:7,createdAt:Date.now(),lastAt:Date.now(),paused:false,speed:4,activeTab:'life',
- generation:1,age:0,maxLife:50,naturalMaxLife:50,lifespanFactor:1,injuryYears:0,root:{element:'木',grade:0,name:'凡品·木灵根'},minor:1,methods:['breath'],activeMethod:'breath',realm:0,realmExp:0,
+ version:8,createdAt:Date.now(),lastAt:Date.now(),paused:false,speed:4,activeTab:'life',
+ generation:1,age:0,maxLife:50,naturalMaxLife:50,lifespanFactor:1,injuryYears:0,root:{element:'木',grade:0,name:'凡品·木灵根'},minor:1,methods:['breath'],activeMethod:'breath',realm:0,realmExp:0,bottleneck:0,
  daoMarks:2,potential:{root:0,wisdom:0,fortune:0,vitality:0},path:paths[0],name:'无名',origin:'青溪村散修',
  gear:[],equipped:{weapon:null,armor:null,charm:null},archive:[],yearbook:[],milestones:[],pills:[0,0,0,0,0,0],started:false,yearTotal:0
 });
@@ -195,8 +205,8 @@ let state;
 try {
  const saved=localStorage.getItem(SAVE_KEY);
  const raw=saved?JSON.parse(saved):null;
- if(raw&&[1,2,3,4,5,6,7].includes(raw.version)){
-  if(raw.version<7)try{localStorage.setItem(`${SAVE_KEY}-backup-v${raw.version}`,saved)}catch{}
+ if(raw&&[1,2,3,4,5,6,7,8].includes(raw.version)){
+  if(raw.version<8)try{localStorage.setItem(`${SAVE_KEY}-backup-v${raw.version}`,saved)}catch{}
   state=normalizeState(raw);
  }else state=fresh();
 } catch {state=fresh()}
@@ -209,6 +219,8 @@ const potentialSum=()=>Object.values(state.potential).reduce((a,b)=>a+b,0);
 const statLevel=k=>state.potential[k]||0;
 const equipmentPower=slot=>{const g=state.gear.find(x=>x.id===state.equipped[slot]);return g?g.power:0};
 const totalPower=()=>Object.keys(state.equipped).reduce((n,s)=>n+equipmentPower(s),0);
+const attackValue=()=>Math.round(12+state.realm*8+(state.minor-1)*2+statLevel('vitality')*3+equipmentPower('weapon')*2);
+const combatValue=()=>attackValue()+equipmentPower('armor')*2+equipmentPower('charm');
 function save(){state.lastAt=Date.now();try{localStorage.setItem(SAVE_KEY,JSON.stringify(state))}catch{}}
 function cleanText(value,fallback='',max=140){return typeof value==='string'?value.replace(/[<>"']/g,'').slice(0,max):fallback}
 function boundedInt(value,fallback,min=0,max=1000000){return Number.isSafeInteger(value)&&value>=min&&value<=max?value:fallback}
@@ -217,7 +229,7 @@ function strongerGear(a,b){return a.power>b.power||a.power===b.power&&a.rarity>b
 function keepBestGear(items){const gear=[],equipped={weapon:null,armor:null,charm:null};for(const slot of Object.keys(equipped)){const best=items.filter(g=>g.slot===slot).sort((a,b)=>b.power-a.power||b.rarity-a.rarity)[0];if(best){gear.push(best);equipped[slot]=best.id}}return{gear,equipped}}
 function normalizeRecord(value){if(!value||!Number.isSafeInteger(value.generation)||!Number.isSafeInteger(value.age))return null;return{generation:boundedInt(value.generation,1,1,1000000),name:cleanText(value.name,'无名',20),age:boundedInt(value.age,0,0,100000000),realm:cleanText(value.realm,'凡人',20),cause:cleanText(value.cause,'寿终坐化',80),marks:boundedInt(value.marks,0,0,100000),path:paths.includes(value.path)?value.path:paths[0]}}
 function normalizeState(source){
- if(!source||![1,2,3,4,5,6,7].includes(source.version)||!Number.isSafeInteger(source.generation)||source.generation<1||!Number.isSafeInteger(source.maxLife)||source.maxLife<1)throw new Error('存档内容不完整，无法导入。');
+ if(!source||![1,2,3,4,5,6,7,8].includes(source.version)||!Number.isSafeInteger(source.generation)||source.generation<1||!Number.isSafeInteger(source.maxLife)||source.maxLife<1)throw new Error('存档内容不完整，无法导入。');
  const result=fresh();const old=source.version===1;
  result.createdAt=boundedInt(source.createdAt,result.createdAt,0,Number.MAX_SAFE_INTEGER);
  result.generation=boundedInt(source.generation,1,1,1000000);
@@ -226,6 +238,7 @@ function normalizeState(source){
  const exp=Number.isFinite(source.realmExp)?Math.max(0,Math.min(100,source.realmExp)):0;
  if(old&&result.realm>0){const total=exp*9;result.minor=Math.min(9,Math.floor(total/100)+1);result.realmExp=Math.min(100,total-(result.minor-1)*100)}
  else {result.minor=result.realm===0?1:boundedInt(source.minor,1,1,9);result.realmExp=exp}
+ result.bottleneck=result.realm>0&&result.realm<10&&result.minor===9&&result.realmExp>=100&&Number.isFinite(source.bottleneck)?Math.max(0,Math.min(100,source.bottleneck)):0;
  for(const key of ['daoMarks','yearTotal'])result[key]=boundedInt(source[key],result[key],0,Number.MAX_SAFE_INTEGER);
  result.speed=[1,4,12].includes(source.speed)?source.speed:4;result.paused=!!source.paused;
  result.activeTab=source.activeTab==='history'||source.activeTab==='bond'?'history':'life';
@@ -260,10 +273,10 @@ function normalizeState(source){
  return result;
 }
 function normalizeSave(envelope){
- if(!envelope||envelope.magic!=='wan-shi-xian-tu-save'||![1,2,3,4,5,6,7].includes(envelope.format)||!envelope.payload||![1,2,3,4,5,6,7].includes(envelope.payload.version))throw new Error('这不是受支持的《万世仙途》存档文件。');
+ if(!envelope||envelope.magic!=='wan-shi-xian-tu-save'||![1,2,3,4,5,6,7,8].includes(envelope.format)||!envelope.payload||![1,2,3,4,5,6,7,8].includes(envelope.payload.version))throw new Error('这不是受支持的《万世仙途》存档文件。');
  return normalizeState(envelope.payload);
 }
-function exportSave(){save();const envelope={magic:'wan-shi-xian-tu-save',format:7,exportedAt:new Date().toISOString(),payload:state};const blob=new Blob([JSON.stringify(envelope,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download=`万世仙途-第${state.generation}世-存档.json`;document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('存档文件已导出，可传到另一台电脑。')}
+function exportSave(){save();const envelope={magic:'wan-shi-xian-tu-save',format:8,exportedAt:new Date().toISOString(),payload:state};const blob=new Blob([JSON.stringify(envelope,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download=`万世仙途-第${state.generation}世-存档.json`;document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('存档文件已导出，可传到另一台电脑。')}
 function importSaveFile(file){const reader=new FileReader();reader.onload=()=>{try{const imported=normalizeSave(JSON.parse(String(reader.result)));state=imported;state.lastAt=Date.now();save();render();toast(`已载入第 ${state.generation} 世存档。`)}catch(error){toast(error instanceof Error?error.message:'存档读取失败，请检查文件。')}};reader.onerror=()=>toast('无法读取这个文件，请重新选择存档。');reader.readAsText(file)}
 function toast(s){const old=document.querySelector('.toast');if(old)old.remove();const n=document.createElement('div');n.className='toast';n.textContent=s;document.body.append(n);clearTimeout(toastTimer);toastTimer=setTimeout(()=>n.remove(),2500)}
 function hashRand(seed){let t=seed+0x6D2B79F5;return()=>{t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}}
@@ -276,14 +289,17 @@ function uiRecent(){
 function uiHead(title,subtitle){return `<div class="ui-page-head"><div><div class="ui-eyebrow">第 ${state.generation} 世 · ${realmName()}</div><h1>${title}</h1><p>${subtitle}</p></div><span class="ui-soul">☯ 同一缕神魂</span></div>`}
 function simpleLifeView(){
  const method=P.bestMethod(state),remaining=Math.max(0,state.maxLife-state.age),pillCount=state.pills.reduce((a,b)=>a+b,0);
+ const atBottleneck=state.realm>0&&state.realm<10&&state.minor===9&&state.realmExp>=100;
+ const shownProgress=Math.floor(atBottleneck?state.bottleneck:state.realmExp);
  const slots=[['weapon','兵刃'],['armor','衣甲'],['charm','灵饰']];
  return `<section class="ui-view" data-view="life">${uiHead('修行','光阴自行流转，神魂历世而不灭。')}
  <article class="ui-hero"><div class="ui-hero-top"><span class="ui-kicker">此世修行</span><span class="ui-live">${state.paused?'已暂停':'● 自动修行中'}</span></div>
  <div class="ui-realm">${realmName()}<small>${state.realm===0?'引气':`第 ${state.minor} 层`}</small></div>
- <div class="ui-progress-label"><span>距下一层</span><strong>${Math.floor(state.realmExp)}%</strong></div><div class="ui-progress"><i style="width:${Math.floor(state.realmExp)}%"></i></div>
+ <div class="ui-progress-label"><span>${atBottleneck?'大境界瓶颈':'距下一层'}</span><strong>${shownProgress}%</strong></div><div class="ui-progress"><i style="width:${shownProgress}%"></i></div>
+ ${atBottleneck?`<div class="ui-bottleneck-hint">悟性 ${statLevel('wisdom')} · 冲关把握 ${Math.round(P.breakthroughChance(state)*100)}%</div>`:''}
  <div class="ui-hero-foot"><span>${state.age} 岁 <em>/</em> 寿限 ${state.maxLife} 岁</span><span>余 ${remaining} 年</span></div></article>
  <article class="ui-equipped"><div class="ui-section-title">随身法宝 <small>自动佩戴最强 · 灵蕴 +${totalPower()}</small></div><div class="ui-equipped-grid">${slots.map(([slot,label])=>{const item=state.gear.find(g=>g.slot===slot);return `<div class="ui-equipped-item"><span>${label}</span><strong class="${item?`grade-${item.rarity}`:''}">${item?esc(item.name):'暂无'}</strong><small>${item?`${P.GRADES[item.rarity].name} · 灵蕴 +${item.power}`:'历练中寻得'}</small></div>`}).join('')}</div></article>
- <div class="ui-tags"><span class="grade-${state.root.grade}">✦ ${esc(state.root.name)}</span><span class="grade-${method.grade}">✧ ${esc(method.name)}</span><span>回春丹 ${pillCount} 枚</span></div>
+ <div class="ui-tags"><span class="grade-${state.root.grade}">✦ ${esc(state.root.name)}</span><span class="grade-${method.grade}">✧ ${esc(method.name)}</span><span>攻击 ${attackValue()} · 战力 ${combatValue()}</span><span>回春丹 ${pillCount} 枚</span></div>
  ${state.injuryYears?`<p class="ui-muted">伤势折寿 ${state.injuryYears} 年；获得回春丹后自动疗伤。</p>`:''}
  <div class="ui-secondary"><div class="ui-section-title">最近发生</div>${uiRecent()}</div>
  <details class="ui-detail" data-detail="yearbook"><summary>本世年鉴 <span>最近 ${state.yearbook.length} 年</span></summary><div class="ui-detail-body ui-yearbook">${state.yearbook.length?state.yearbook.map(x=>`<div class="ui-event ${x.kind==='danger'?'ui-danger':''}"><span>${x.age} 岁</span><p>${esc(x.text)}</p></div>`).join(''):'<p class="ui-muted">这一世尚未走过一年。</p>'}</div></details>
@@ -292,7 +308,7 @@ function simpleLifeView(){
 function simpleHistoryView(){
  return `<section class="ui-view" data-view="history">${uiHead('轮回','道痕留在神魂中，每一世都能继续前行。')}
  <article class="ui-panel ui-soul-panel"><div><span class="ui-kicker">可分配道痕</span><div class="ui-mark-count">${money(state.daoMarks)}</div><p>由你亲自分配，未使用的道痕会保留。</p></div><span class="ui-watermark">☯</span></article>
- <article class="ui-panel"><div class="ui-section-title">神魂潜力 <small>手动分配</small></div><div class="ui-potential-grid">${potentialTypes.map(x=>`<div class="ui-potential"><span>${x.glyph} ${x.name}</span><strong>${statLevel(x.key)}</strong><button class="ui-button" data-action="allocate-potential" data-key="${x.key}" ${state.daoMarks<=0?'disabled':''}>＋ 提升</button></div>`).join('')}</div><p class="ui-muted">灵根影响来世资质；悟性、气运与体魄随神魂积累。</p></article>
+ <article class="ui-panel"><div class="ui-section-title">神魂潜力 <small>手动分配</small></div><div class="ui-potential-grid">${potentialTypes.map(x=>`<div class="ui-potential"><span>${x.glyph} ${x.name}</span><strong>${statLevel(x.key)}</strong><small>${x.desc}</small><button class="ui-button" data-action="allocate-potential" data-key="${x.key}" ${state.daoMarks<=0?'disabled':''}>＋ 提升</button></div>`).join('')}</div><p class="ui-muted">四项潜力随同一神魂跨世积累。</p></article>
  <details class="ui-detail" data-detail="milestones"><summary>历世大事 <span>${state.milestones.length} 件</span></summary><div class="ui-detail-body ui-yearbook">${state.milestones.length?state.milestones.slice().reverse().map(x=>`<div class="ui-event ${x.kind==='red'?'ui-danger':''}"><span>第${x.generation}世<br>${x.age}岁</span><p>${esc(x.text)}</p></div>`).join(''):'<p class="ui-muted">重要的突破与机缘会留在这里。</p>'}</div></details>
  <details class="ui-detail" data-detail="archive"><summary>前世记录 <span>${state.archive.length} 世</span></summary><div class="ui-detail-body">${state.archive.length?state.archive.slice().reverse().slice(0,30).map(r=>`<div class="ui-simple-row"><span>第 ${r.generation} 世 · ${esc(r.realm)}</span><small>${r.age} 岁 · ${esc(r.cause)} · +${r.marks} 道痕</small></div>`).join(''):'<p class="ui-muted">尚未经历轮回。</p>'}</div></details>
  <details class="ui-detail" data-detail="manage"><summary>存档管理 <span>导入 / 导出 / 重启</span></summary><div class="ui-detail-body ui-actions"><button class="ui-button" data-action="export-save">导出存档</button><button class="ui-button" data-action="import-save">导入存档</button><button class="ui-button" data-action="reset">重启游戏</button></div></details>
@@ -325,13 +341,12 @@ function healAutomatically(){
 }
 function rollYearlyEvent(){
  const fortune=Math.max(0,statLevel('fortune'));
- const vitality=Math.max(0,statLevel('vitality'));
- const roll=rng();
+ const roll=rng()-Math.min(.16,fortune*.006);
  const marketChance=Math.min(.035,.012+fortune*.0008);
  const pillChance=Math.min(.14,.075+fortune*.002);
  const gearChance=Math.min(.09,.04+fortune*.0015);
  const insightChance=Math.min(.18,.11+fortune*.002);
- const accidentChance=Math.max(.008,.035-fortune*.0007-vitality*.0005);
+ const battleChance=.055;
  if(roll<marketChance){
   const rareRoll=rng()+Math.min(.2,fortune*.008);
   const grade=rareRoll>.96?5:rareRoll>.72?4:3;
@@ -348,13 +363,24 @@ function rollYearlyEvent(){
   return {text:`山野历练，发现${gear.name}（${P.GRADES[gear.rarity].name}），已自动佩戴${found.replaced?'并替换旧法宝':''}。`,kind:'fortune'};
  }
  if(roll<marketChance+pillChance+gearChance+insightChance){
-  const gain=Math.min(12,P.annualProgress(state,totalPower())*(.6+rng()*1.2));
+  const gain=Math.min(12,P.annualProgress(state,totalPower())*(.6+rng()*1.2)*(1+Math.min(.3,fortune*.015)));
+  if(state.realm>0&&state.realm<10&&state.minor===9&&state.realmExp>=100){
+   const wisdom=statLevel('wisdom');state.bottleneck=Math.min(100,state.bottleneck+gain*(4+Math.min(30,wisdom)*.16));
+   return {text:`修行有悟，大境界瓶颈松动。`,kind:'fortune'};
+  }
   state.realmExp=Math.min(100,state.realmExp+gain);
   return {text:`修行有悟，额外积蓄${gain<1?gain.toFixed(2):gain.toFixed(1)}%修为。`,kind:'fortune'};
  }
- if(roll>1-accidentChance){
-  const injury=P.injure(state,Math.max(2,Math.round(state.naturalMaxLife*(.012+rng()*.012))));
-  if(injury>0){if(injury>=20)rememberMilestone(`历练受伤，折损${injury}年寿元`,'red');return {text:`历练遇险，受伤折损${injury}年寿元。`,kind:'danger'}}
+ if(roll>1-battleChance){
+  const enemy=Math.round((10+state.realm*10+state.minor*2)*(.7+rng()*.75));
+  const strike=Math.round(combatValue()*(.78+rng()*.5+Math.min(.25,fortune*.006)));
+  if(strike>=enemy){
+   const grade=Math.min(5,Math.floor(rng()*3+state.realm*.22+fortune*.025));
+   return {text:`历练遭遇妖兽，以攻击${attackValue()}、战力${combatValue()}取胜。${receivePill(grade,'战后，')}`,kind:'fortune'};
+  }
+  const injury=P.injure(state,Math.max(2,Math.round(state.naturalMaxLife*(.006+Math.min(.02,enemy/Math.max(1,strike)*.008)))));
+  if(injury>0){if(injury>=20)rememberMilestone(`历练战败，折损${injury}年寿元`,'red');return {text:`历练遭遇妖兽，战力${combatValue()}不敌，受伤折寿${injury}年。`,kind:'danger'}}
+  return {text:'历练遇到妖兽，勉强脱身。',kind:'normal'};
  }
  return {text:'',kind:'normal'};
 }
@@ -376,14 +402,16 @@ function tick(){
   if(state.age>=state.maxLife){recordYear('寿元走到尽头，神魂转入下一世。','death');die('寿元已尽，寿终坐化');break}
   const notes=[];
   const encounter=rollYearlyEvent();if(encounter.text)notes.push(encounter.text);
-  const progress=Math.max(1,Math.round(P.annualProgress(state,totalPower())));
+  const annual=P.annualProgress(state,totalPower());
+  const progress=annual<1?annual.toFixed(2):annual.toFixed(1);
   const outcome=P.advance(state,rng,totalPower());
   let headline=`闭关修炼，修为推进${progress}%。`,kind=encounter.kind;
   if(outcome.kind==='minor'){headline=`修为渐深，踏入${realmName()}第${state.minor}层。`;kind='breakthrough'}
+  if(outcome.kind==='bottleneck')headline=`修为已满，正在化解${realmName()}境瓶颈（${Math.floor(state.bottleneck)}%）。`;
   if(outcome.kind==='realm'){headline=`破境成功，踏入${realmName()}，寿元随之增长。`;kind='breakthrough';rememberMilestone(`踏入${realmName()}境`)}
-  if(outcome.kind==='setback'){headline=`冲关失利，伤势折寿${outcome.injury}年。`;kind='danger';if(outcome.injury>=20)rememberMilestone(`冲关失利，折损${outcome.injury}年寿元`,'red')}
+  if(outcome.kind==='setback'){headline=`瓶颈反噬，冲关失利，伤势折寿${outcome.injury}年。`;kind='danger';if(outcome.injury>=20)rememberMilestone(`冲关失利，折损${outcome.injury}年寿元`,'red')}
   if(state.age%13===0&&rng()<.32){const found=P.discoverMethod(state,rng);if(found){notes.push(`领悟${found.name}（${P.GRADES[found.grade].name}）。`);if(found.grade>=4)rememberMilestone(`习得${found.name}（${P.GRADES[found.grade].name}）`)}}
-  if(state.realm>=4&&state.age%19===0&&rng()>(.8+statLevel('vitality')*.012+statLevel('wisdom')*.006)){
+  if(state.realm>=4&&state.age%19===0&&rng()>(.88+Math.min(.1,statLevel('fortune')*.004))){
    const hurt=P.injure(state,Math.round(state.naturalMaxLife*.025));if(hurt>0){notes.push(`天劫擦身，伤势折寿${hurt}年。`);kind='danger';if(hurt>=20)rememberMilestone(`天劫重伤，折损${hurt}年寿元`,'red')}
   }
   const healed=healAutomatically();if(healed)notes.push(healed);
@@ -396,7 +424,7 @@ function die(cause){
  const bonusMarks=1+Math.floor(state.age/20)+Math.floor(state.realm/2);
  const rec={generation:state.generation,name:state.name,age:state.age,realm:realmName(),cause,marks:bonusMarks,path:state.path};
  state.archive.push(rec);state.daoMarks+=bonusMarks;rememberMilestone(`${cause}，得${bonusMarks}点道痕`,'red');
- state.generation++;state.age=0;state.realm=0;state.realmExp=0;state.yearbook=[];
+ state.generation++;state.age=0;state.realm=0;state.realmExp=0;state.bottleneck=0;state.yearbook=[];
  state.path=paths[Math.floor(rng()*paths.length)];state.name='无名';
  Object.assign(state,P.newLifeFields(state.potential,rng));state.started=true;state.paused=false;P.syncLife(state);
  save();render();
