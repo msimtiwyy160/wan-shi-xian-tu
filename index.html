@@ -103,8 +103,9 @@ const METHODS=[
  {id:'sun',name:'大日真经',grade:4,element:'火',effect:'大日炼心',cultivation:0.57,breakthrough:0.04},
  {id:'primordial',name:'太初混元诀',grade:5,element:'通',effect:'万法同源',cultivation:0.72,breakthrough:0.06}
 ];
-const BASE_LIFE=[100,160,300,650,1500,5500,15000,30000,70000,150000,300000];
-const WORK=[24,21,27,33,450,1400,3000,5500,14000,20000,26000];
+const BASE_LIFE=[50,70,150,300,700,1800,4500,11000,28000,70000,150000];
+const LIFE_RANGES=[[42,59],[60,80],[128,173],[255,345],[595,805],[1530,2070],[3825,5175],[9350,12650],[23800,32200],[59500,80500],[127500,172500]];
+const WORK=[24,24,30,37,170,400,1000,2400,6500,15000,20000];
 const clamp=(n,a,b)=>Math.min(b,Math.max(a,n));
 const value=(n,fallback=0)=>Number.isFinite(n)?n:fallback;
 function makeRoot(potential,rng=Math.random){
@@ -115,7 +116,7 @@ function makeRoot(potential,rng=Math.random){
 }
 function newLifeFields(potential,rng=Math.random){return {
  root:makeRoot(potential,rng),lifespanFactor:Math.round((0.85+rng()*0.30)*1000)/1000,
- injuryYears:0,legacyLifeFloor:0,realmLifeBase:BASE_LIFE[0],minor:1
+ injuryYears:0,minor:1
 }}
 function methodById(id){return METHODS.find(x=>x.id===id)||METHODS[0]}
 function affinity(method,root){return method.element==='通'?1:method.element===root?.element?1.12:0.87}
@@ -135,9 +136,8 @@ function discoverMethod(state,rng=Math.random){
 }
 function naturalLife(state){
  const realm=clamp(Math.floor(value(state.realm)),0,10);
- const lifeBase=Math.max(1,value(state.realmLifeBase,BASE_LIFE[realm]));
- const raw=Math.round(lifeBase*value(state.lifespanFactor,1)+Math.max(0,value(state.potential?.vitality))*4);
- return Math.max(Math.floor(value(state.legacyLifeFloor)),raw);
+ const raw=Math.round(BASE_LIFE[realm]*value(state.lifespanFactor,1)+Math.max(0,value(state.potential?.vitality))*4);
+ return clamp(raw,...LIFE_RANGES[realm]);
 }
 function syncLife(state){state.naturalMaxLife=naturalLife(state);state.injuryYears=clamp(Math.floor(value(state.injuryYears)),0,Math.max(0,state.naturalMaxLife-1));state.maxLife=Math.max(1,state.naturalMaxLife-state.injuryYears);return state.maxLife}
 function injure(state,years){syncLife(state);const room=Math.max(0,state.maxLife-state.age-1);const applied=Math.min(room,Math.max(0,Math.floor(value(years))));state.injuryYears+=applied;syncLife(state);return applied}
@@ -156,11 +156,11 @@ function breakthroughChance(state){return clamp(0.62+Math.max(0,value(state.pote
 function advance(state,rng=Math.random,power=0){
  state.realmExp=clamp(value(state.realmExp)+annualProgress(state,power),0,100);
  if(state.realmExp<100)return {kind:'practice'};
- if(state.realm===0){state.realm=1;state.realmLifeBase=BASE_LIFE[1];state.minor=1;state.realmExp=0;syncLife(state);return {kind:'realm',realm:1}}
+ if(state.realm===0){state.realm=1;state.minor=1;state.realmExp=0;syncLife(state);return {kind:'realm',realm:1}}
  if(state.minor<9){state.minor++;state.realmExp=0;return {kind:'minor',minor:state.minor}}
  if(state.realm>=10){state.realmExp=0;return {kind:'practice'}}
  if(rng()<breakthroughChance(state)){
-  state.realm++;state.realmLifeBase=BASE_LIFE[state.realm];state.minor=1;state.realmExp=0;syncLife(state);return {kind:'realm',realm:state.realm};
+  state.realm++;state.minor=1;state.realmExp=0;syncLife(state);return {kind:'realm',realm:state.realm};
  }
  state.realmExp=68;const injury=injure(state,Math.max(1,Math.round(state.naturalMaxLife*0.018)));
  return {kind:'setback',injury};
@@ -186,8 +186,8 @@ const potentialTypes=[
 const gearNames={weapon:['松纹剑','赤霄短刃','青冥剑胚','逐月飞剑','太虚古剑','玄阳斩龙剑'],armor:['素绡法衣','青鳞护心甲','流云仙氅','山河玄甲','九转星衣','无相天衣'],charm:['凝神玉佩','月华灵珠','问道古钱','紫府莲台','乾坤定魂印','太初道种']};
 const paths=['太初混元诀','青莲剑典','玄冥真水录','烛龙观星法','厚土载岳功'];
 const fresh=()=>({
- version:6,createdAt:Date.now(),lastAt:Date.now(),paused:false,speed:4,activeTab:'life',
- generation:1,age:0,maxLife:100,naturalMaxLife:100,realmLifeBase:100,lifespanFactor:1,injuryYears:0,legacyLifeFloor:0,root:{element:'木',grade:0,name:'凡品·木灵根'},minor:1,methods:['breath'],activeMethod:'breath',realm:0,realmExp:0,
+ version:7,createdAt:Date.now(),lastAt:Date.now(),paused:false,speed:4,activeTab:'life',
+ generation:1,age:0,maxLife:50,naturalMaxLife:50,lifespanFactor:1,injuryYears:0,root:{element:'木',grade:0,name:'凡品·木灵根'},minor:1,methods:['breath'],activeMethod:'breath',realm:0,realmExp:0,
  daoMarks:2,potential:{root:0,wisdom:0,fortune:0,vitality:0},path:paths[0],name:'无名',origin:'青溪村散修',
  gear:[],equipped:{weapon:null,armor:null,charm:null},archive:[],yearbook:[],milestones:[],pills:[0,0,0,0,0,0],started:false,yearTotal:0
 });
@@ -195,8 +195,8 @@ let state;
 try {
  const saved=localStorage.getItem(SAVE_KEY);
  const raw=saved?JSON.parse(saved):null;
- if(raw&&[1,2,3,4,5,6].includes(raw.version)){
-  if(raw.version<6)try{localStorage.setItem(`${SAVE_KEY}-backup-v${raw.version}`,saved)}catch{}
+ if(raw&&[1,2,3,4,5,6,7].includes(raw.version)){
+  if(raw.version<7)try{localStorage.setItem(`${SAVE_KEY}-backup-v${raw.version}`,saved)}catch{}
   state=normalizeState(raw);
  }else state=fresh();
 } catch {state=fresh()}
@@ -217,7 +217,7 @@ function strongerGear(a,b){return a.power>b.power||a.power===b.power&&a.rarity>b
 function keepBestGear(items){const gear=[],equipped={weapon:null,armor:null,charm:null};for(const slot of Object.keys(equipped)){const best=items.filter(g=>g.slot===slot).sort((a,b)=>b.power-a.power||b.rarity-a.rarity)[0];if(best){gear.push(best);equipped[slot]=best.id}}return{gear,equipped}}
 function normalizeRecord(value){if(!value||!Number.isSafeInteger(value.generation)||!Number.isSafeInteger(value.age))return null;return{generation:boundedInt(value.generation,1,1,1000000),name:cleanText(value.name,'无名',20),age:boundedInt(value.age,0,0,100000000),realm:cleanText(value.realm,'凡人',20),cause:cleanText(value.cause,'寿终坐化',80),marks:boundedInt(value.marks,0,0,100000),path:paths.includes(value.path)?value.path:paths[0]}}
 function normalizeState(source){
- if(!source||![1,2,3,4,5,6].includes(source.version)||!Number.isSafeInteger(source.generation)||source.generation<1||!Number.isSafeInteger(source.maxLife)||source.maxLife<1)throw new Error('存档内容不完整，无法导入。');
+ if(!source||![1,2,3,4,5,6,7].includes(source.version)||!Number.isSafeInteger(source.generation)||source.generation<1||!Number.isSafeInteger(source.maxLife)||source.maxLife<1)throw new Error('存档内容不完整，无法导入。');
  const result=fresh();const old=source.version===1;
  result.createdAt=boundedInt(source.createdAt,result.createdAt,0,Number.MAX_SAFE_INTEGER);
  result.generation=boundedInt(source.generation,1,1,1000000);
@@ -238,10 +238,7 @@ function normalizeState(source){
  const seed=hashRand(result.createdAt+result.generation*9973);
  result.root=source.root&&P.ELEMENTS.includes(source.root.element)&&Number.isInteger(source.root.grade)&&source.root.grade>=0&&source.root.grade<=5?{element:source.root.element,grade:source.root.grade,name:`${P.GRADES[source.root.grade].name}·${source.root.element}灵根`}:P.makeRoot(result.potential,seed);
  result.lifespanFactor=old?Math.max(.85,Math.min(1.15,.85+seed()*.30)):(Number.isFinite(source.lifespanFactor)?Math.max(.85,Math.min(1.15,source.lifespanFactor)):1);
- result.legacyLifeFloor=old?boundedInt(source.maxLife,88,1,100000000):boundedInt(source.legacyLifeFloor,0,0,100000000);
  result.injuryYears=old?0:boundedInt(source.injuryYears,0,0,100000000);
- const priorNatural=boundedInt(source.naturalMaxLife,Math.max(1,source.maxLife+result.injuryYears),1,100000000);
- result.realmLifeBase=source.version>=6?boundedInt(source.realmLifeBase,P.BASE_LIFE[result.realm],1,100000000):Math.max(1,Math.round((priorNatural-result.potential.vitality*4)/result.lifespanFactor));
  result.methods=['breath'];if(Array.isArray(source.methods))for(const id of source.methods.slice(0,30))if(typeof id==='string'&&P.METHODS.some(m=>m.id===id)&&!result.methods.includes(id))result.methods.push(id);
  result.activeMethod=P.bestMethod(result).id;result.methods=[result.activeMethod];
  result.pills=Array.from({length:6},(_,i)=>boundedInt(source.pills?.[i],0,0,99));
@@ -259,15 +256,14 @@ function normalizeState(source){
  result.started=source.version>=3?!!source.started:(result.age>0||result.generation>1&&!['rebirth','potential'].includes(source.pending?.kind));
  if(source.pending)result.paused=false;
  P.syncLife(result);
- if(old&&result.maxLife<source.maxLife){result.legacyLifeFloor=source.maxLife;P.syncLife(result)}
  if(result.age>=result.maxLife)result.paused=false;
  return result;
 }
 function normalizeSave(envelope){
- if(!envelope||envelope.magic!=='wan-shi-xian-tu-save'||![1,2,3,4,5,6].includes(envelope.format)||!envelope.payload||![1,2,3,4,5,6].includes(envelope.payload.version))throw new Error('这不是受支持的《万世仙途》存档文件。');
+ if(!envelope||envelope.magic!=='wan-shi-xian-tu-save'||![1,2,3,4,5,6,7].includes(envelope.format)||!envelope.payload||![1,2,3,4,5,6,7].includes(envelope.payload.version))throw new Error('这不是受支持的《万世仙途》存档文件。');
  return normalizeState(envelope.payload);
 }
-function exportSave(){save();const envelope={magic:'wan-shi-xian-tu-save',format:6,exportedAt:new Date().toISOString(),payload:state};const blob=new Blob([JSON.stringify(envelope,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download=`万世仙途-第${state.generation}世-存档.json`;document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('存档文件已导出，可传到另一台电脑。')}
+function exportSave(){save();const envelope={magic:'wan-shi-xian-tu-save',format:7,exportedAt:new Date().toISOString(),payload:state};const blob=new Blob([JSON.stringify(envelope,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download=`万世仙途-第${state.generation}世-存档.json`;document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('存档文件已导出，可传到另一台电脑。')}
 function importSaveFile(file){const reader=new FileReader();reader.onload=()=>{try{const imported=normalizeSave(JSON.parse(String(reader.result)));state=imported;state.lastAt=Date.now();save();render();toast(`已载入第 ${state.generation} 世存档。`)}catch(error){toast(error instanceof Error?error.message:'存档读取失败，请检查文件。')}};reader.onerror=()=>toast('无法读取这个文件，请重新选择存档。');reader.readAsText(file)}
 function toast(s){const old=document.querySelector('.toast');if(old)old.remove();const n=document.createElement('div');n.className='toast';n.textContent=s;document.body.append(n);clearTimeout(toastTimer);toastTimer=setTimeout(()=>n.remove(),2500)}
 function hashRand(seed){let t=seed+0x6D2B79F5;return()=>{t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}}
@@ -423,7 +419,7 @@ function init(){
  if(!state.started){Object.assign(state,P.newLifeFields(state.potential,rng));state.started=true;state.paused=false}
  P.syncLife(state);
  if(state.age>=state.maxLife)die('寿元已尽，寿终坐化');
- bind();render();interval=setInterval(tick,1000);
+ bind();render();interval=setInterval(tick,3000);
  setInterval(()=>{if(!state.paused)save()},10000);window.addEventListener('beforeunload',save);
 }
 init();
